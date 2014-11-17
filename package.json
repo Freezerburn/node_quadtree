@@ -1,0 +1,11 @@
+{
+  "name": "node-quadtree",
+  "version": "1.0.0",
+  "description": "Native implementation of a QuadTree data structure.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "author": "freezerburn",
+  "license": "MIT"
+}
