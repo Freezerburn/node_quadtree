@@ -213,6 +213,23 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
         }
     }
 }
+void qnode_remove(qnode *n, unsigned ml, unsigned l, Persistent<Value> d) {
+    for(unsigned i = 0; i < n->cd; i++) {
+        if(n->d[i].d->StrictEquals(d)) {
+            if(i + 1 == n->cd) {
+                n->d[i].d.Dispose();
+                n->d[i].d.Clear();
+                n->cd--;
+            }
+            else {
+                n->d[i].d.Dispose();
+                n->d[i].d.Clear();
+                memmove(n->d + i, n->d + i + 1, (n->cd - i) * sizeof(qnentry));
+                n->cd--;
+            }
+        }
+    }
+}
 void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsigned ml) {
     // printf("coll current node: ");
     // qnode_printfn(n);
@@ -231,7 +248,7 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
             // rect_printfn(&n->d[i].r);
             // printf("coll data: %s\n", *String::Utf8Value(n->d[i].d));
             for(unsigned j = 0; j < results->ce; j++) {
-                if(recteq(&n->d[i].r, &results->e[i].r) && results->e[j].d->StrictEquals(n->d[i].d)) {
+                if(recteq(&n->d[i].r, &results->e[j].r) && results->e[j].d->StrictEquals(n->d[i].d)) {
                     skip = 1;
                     break;
                 }
@@ -242,7 +259,11 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
                     results->me *= 2;
                     results->e = (qnentry*)realloc(results->e, sizeof(qnentry) * results->me);
                 }
-                memcpy(&results->e[results->ce++], &n->d[i], sizeof(qnentry));
+                results->e[results->ce].r.x = n->d[i].r.x;
+                results->e[results->ce].r.y = n->d[i].r.y;
+                results->e[results->ce].r.w = n->d[i].r.w;
+                results->e[results->ce].r.h = n->d[i].r.h;
+                results->e[results->ce++].d = n->d[i].d;
             }
         }
     }
@@ -256,6 +277,9 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
 void qtreeadd(qtree *qt, qrect *r, Persistent<Value> d) {
     // rect_printfn(r);
     qnodeadd(qt->ns, qt->ml, 0, r, d);
+}
+void qtreerem(qtree *qt, Persistent<Value> d) {
+    qnode_remove(qt->ns, qt->ml, 0, d);
 }
 qcolresults* qtree_colliding(qtree *qt, qrect *r) {
     qcolresults *results = qcolresultsn(100);
@@ -385,6 +409,9 @@ Handle<Value> js_qtree_coll(const Arguments &args) {
     //     rect_printfn(&results->e[i].r);
     // }
     Local<Array> ret = Array::New(results->ce);
+    if(results->ce > 1000) {
+        printf("!!!!! %d results!\n", results->ce);
+    }
     for(unsigned i = 0; i < results->ce; i++) {
         Local<Number> x = Number::New(results->e[i].r.x);
         Local<Number> y = Number::New(results->e[i].r.y);

@@ -1,30 +1,60 @@
 var qt = require("./index");
 
-var tree = new qt.QuadTree(1024, 1024);
-var r = new qt.Rect(50, 0, 1024, 1024);
-console.log(qt);
-console.log(tree);
-console.log(r);
+function hr2micro(hr) {
+    return hr[0] * 1000000 + hr[1] / 1000;
+}
 
-console.log(tree.add);
-var testobj = {foo: "bar"};
-for(var i = 0; i < 15; i++) {
-    // tree.add(new qt.Rect(5 * i, 5 * i, 100 + 5 * i, 100 + 5 * i), {foo: "bar" + i});
-    tree.add(new qt.Rect(5 * i, 5 * i, 100 + 5 * i, 100 + 5 * i), testobj);
+var w = 1024, h = 1024;
+var addw = 1024, addh = 1024;
+var times = 1000, intersect_times = times * 100;
+var addperloop = times / 50;
+var xpertime = w / times, ypertime = h / times;
+var rw = 10, rh = 10;
+var tree = new qt.QuadTree(w,h);
+var addobj = {foo: "bar"};
+
+function rectcolltest(r1, r2) {
+    var fx = Math.abs(r1.x - r2.x);
+    var fy = Math.abs(r1.y - r2.y);
+    var fw = Math.abs(r1.w - r2.w);
+    var fh = Math.abs(r1.h - r2.h);
+    console.log("fx:" + fx + ";fy:" + fy + ";fw:" + fw + ";fh:" + fh);
 }
-var total = 0;
-var times = 100000;
-for(var i = 0; i < times; i++) {
-    var t1 = process.hrtime()
-    var rects = tree.intersecting(new qt.Rect(45, 45, 1, 1));
-    var t2 = process.hrtime();
-    var t1nano = t1[0] * 1000000 + t1[1] / 1000;
-    var t2nano = t2[0] * 1000000 + t2[1] / 1000;
-    total += t2nano - t1nano;
-}
-console.log("intersecting took avg " + (total / times) + " microseconds");
-console.log((1000000 / (total / times)) + " intersections can be made per second");
-for(var i = 0; i < rects.length; i++) {
-    console.log(rects[i]);
+
+for(var i = 0; i < times / 10; i++) {
+    console.log("Doing performance testing for QuadTree of size " + w + ", " + h);
+    for(var j = 0; j < times; j+=addperloop) {
+        for(var k = 0; k < addperloop; k++) {
+            tree.add(new qt.Rect(xpertime * (j + k), ypertime * (j + k), rw, rh), addobj);
+        }
+        var time = 0;
+        for(var k = 0; k < intersect_times; k++) {
+            var xloc = Math.random() * w, yloc = Math.random() * h;
+            var t1 = process.hrtime();
+            var results = tree.intersecting(new qt.Rect(xloc, yloc, rw, rh));
+            var t2 = process.hrtime();
+            time += hr2micro(t2) - hr2micro(t1);
+            if(k % 1000 == 0)
+                global.gc();
+
+            // if(results.length > 15) {
+            //     console.log("LONG LENGTH DATA: " + results.length);
+            //     console.log(new qt.Rect(xloc, yloc, rw, rh));
+            //     for(var z = 0; z < results.length; z++) {
+            //         console.log("x:" + results[z].x + ";y:" + results[z].y +
+            //             ";w:" + results[z].w + ";h:" + results[z].h);
+            //         rectcolltest(results[z], results[z]);
+            //         console.log(results[z]);
+            //     }
+            // }
+        }
+        console.log("QuadTree with " + (j + addperloop) + " objects took avg " + (time / intersect_times)
+            + " microseconds for intersects.");
+    }
+    w += addw;
+    h += addh;
+    xpertime = w / times;
+    ypertime = h / times;
+    tree = new qt.QuadTree(w,h);
 }
 // tree.add(new qt.Rect(0, 0, 100, 100), testobj);
