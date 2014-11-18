@@ -40,6 +40,10 @@ struct qcolresultsI {
 };
 typedef struct qcolresultsI qcolresults;
 
+void qcolresultsd(qcolresults *r) {
+    free(r->e);
+    free(r);
+}
 qcolresults* qcolresultsn(unsigned me) {
     qcolresults *ret = (qcolresults*)malloc(sizeof(qcolresults));
     ret->e = (qnentry*)malloc(sizeof(qnentry) * me);
@@ -424,6 +428,7 @@ Handle<Value> js_qtree_coll(const Arguments &args) {
         pair->Set(String::New("obj"), results->e[i].d);
         ret->Set(i, pair);
     }
+    qcolresultsd(results);
     return scope.Close(ret);
 }
 
