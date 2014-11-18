@@ -41,6 +41,9 @@ struct qcolresultsI {
 typedef struct qcolresultsI qcolresults;
 
 void qcolresultsd(qcolresults *r) {
+    for(unsigned i = 0; i < r->ce; i++) {
+        r->e[i].d.~Persistent();
+    }
     free(r->e);
     free(r);
 }
@@ -376,7 +379,7 @@ Handle<Value> js_qtree_add(const Arguments &args) {
     // printf("Got js_rect object.\n");
     Persistent<Value> d = Persistent<Value>::New(args[1]);
     // printf("Made new persistent from argument 1.\n");
-    d.MarkIndependent();
+    // d.MarkIndependent();
     // printf("Persistent marked as independent.\n");
     float x = (float)js_rect->Get(String::New("x"))->NumberValue();
     // printf("Got x.\n");
