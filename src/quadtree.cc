@@ -52,6 +52,9 @@ qcolresults* qcolresultsn(unsigned me) {
     ret->e = (qnentry*)malloc(sizeof(qnentry) * me);
     ret->ce = 0;
     ret->me = me;
+    for(unsigned i = 0; i < me; i++) {
+        ret->e[i].d = Persistent<Value>();
+    }
     return ret;
 }
 
@@ -295,7 +298,11 @@ qcolresults* qtree_colliding(qtree *qt, qrect *r) {
 }
 
 void js_weak_qrect(Persistent<Value> value, void *data) {
+    HandleScope scope;
     free(data);
+    value.ClearWeak();
+    value.Dispose();
+    value.Clear();
 }
 
 Handle<Value> js_rectn(const Arguments &args) {
@@ -322,20 +329,24 @@ Handle<Value> js_rectn(const Arguments &args) {
 }
 
 Handle<Value> js_rect_xget(Local<String> prop, const AccessorInfo &info) {
+    HandleScope scope;
     qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return Number::New(r->x);
+    return scope.Close(Number::New(r->x));
 }
 Handle<Value> js_rect_yget(Local<String> prop, const AccessorInfo &info) {
+    HandleScope scope;
     qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return Number::New(r->y);
+    return scope.Close(Number::New(r->y));
 }
 Handle<Value> js_rect_wget(Local<String> prop, const AccessorInfo &info) {
+    HandleScope scope;
     qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return Number::New(r->w);
+    return scope.Close(Number::New(r->w));
 }
 Handle<Value> js_rect_hget(Local<String> prop, const AccessorInfo &info) {
+    HandleScope scope;
     qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return Number::New(r->h);
+    return scope.Close(Number::New(r->h));
 }
 
 void js_weak_qtree(Persistent<Value> value, void *data) {
@@ -366,6 +377,12 @@ Handle<Value> js_qtreen(const Arguments &args) {
     return scope.Close(args.This());
 }
 
+void js_weak_storedobj(Persistent<Value> value, void *data) {
+    value.ClearWeak();
+    value.Dispose();
+    value.Clear();
+}
+
 Handle<Value> js_qtree_add(const Arguments &args) {
     if(args.Length() < 2) {
         return ThrowException(Exception::TypeError(
@@ -378,6 +395,7 @@ Handle<Value> js_qtree_add(const Arguments &args) {
     Local<Object> js_rect = args[0]->ToObject();
     // printf("Got js_rect object.\n");
     Persistent<Value> d = Persistent<Value>::New(args[1]);
+    d.MakeWeak(NULL, js_weak_storedobj);
     // printf("Made new persistent from argument 1.\n");
     // d.MarkIndependent();
     // printf("Persistent marked as independent.\n");
