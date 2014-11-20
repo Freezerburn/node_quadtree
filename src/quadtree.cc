@@ -94,14 +94,18 @@ int rect_intersect(qrect *r1, qrect *r2) {
 }
 
 void qnoded(qnode *n) {
+    // printf("Freeing node data %d\n", n->i);
     free(n->d);
 }
 void qtreed(qtree *qt) {
-    nfroml(nd,qt->ml)
+    nfroml(nd,qt->ml + 1)
+    // printf("nd: %d\n", nd);
     for(unsigned i = 0; i < nd; i++) {
         qnoded(qt->ns + i);
     }
-    free(qt->ns);
+    // printf("")
+    // free(qt->ns);
+    // printf("Freeing qtree.");
     free(qt);
 }
 
@@ -185,9 +189,13 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
             if(l == ml) {
                 /*max depth, increase array size*/
                 // printf("Black node full, realloc.\n");
-                n->md *= 2;
+                unsigned nm = n->md * 2;
                 // printf("New max: %d\n", n->md);
-                n->d = (qnentry*)realloc(n->d, sizeof(qnentry) * n->md);
+                qnentry *tmp = (qnentry*)malloc(sizeof(qnentry) * nm);
+                memcpy(tmp, n->d, sizeof(qnentry) * n->md);
+                free(n->d);
+                n->d = tmp;
+                n->md = nm;
                 // printf("realloc done. setting values.\n");
                 n->d[n->cd].r = *r;
                 n->d[n->cd++].d = d;
