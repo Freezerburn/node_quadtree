@@ -86,6 +86,11 @@ void rect_printfn(qrect *r) {
 }
 
 int rect_intersect(qrect *r1, qrect *r2) {
+    // float ulx = fmaxf(r1->x, r2->x);
+    // float uly = fmaxf(r1->y, r2->y);
+    // float lrx = fminf(r1->x + r1->w, r2->x + r2->w);
+    // float lry = fminf(r1->y + r1->h, r2->y + r2->h);
+    // return ulx <= lrx && uly <= lry ? 1 : 0;
     if(r1->x + r1->w < r2->x)return 0;
     else if(r1->x > r2->x + r2->w)return 0;
     else if(r1->y + r1->h < r2->y)return 0;
@@ -287,8 +292,21 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
     }
 
     if(l != ml) {
-        for(unsigned i = 1; i <= 4; i++) {
-            qnode_colliding(n + qnch(n->i, i), r, results, l + 1, ml);
+        unsigned nch = qnch(n->i, 1);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_colliding(n + nch, r, results, l + 1, ml);
+        }
+        nch = qnch(n->i, 2);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_colliding(n + nch, r, results, l + 1, ml);
+        }
+        nch = qnch(n->i, 3);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_colliding(n + nch, r, results, l + 1, ml);
+        }
+        nch = qnch(n->i, 4);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_colliding(n + nch, r, results, l + 1, ml);
         }
     }
 }
@@ -299,7 +317,11 @@ void qtreeadd(qtree *qt, qrect *r, Persistent<Value> d) {
 void qtreerem(qtree *qt, Persistent<Value> d) {
     qnode_remove(qt->ns, qt->ml, 0, d);
 }
+// static qcolresults *global_results = NULL;
 qcolresults* qtree_colliding(qtree *qt, qrect *r) {
+    // if(global_results == NULL) {
+    //     global_results = qcolresultsn(100);
+    // }
     qcolresults *results = qcolresultsn(100);
     qnode_colliding(qt->ns, r, results, 0, qt->ml);
     return results;
@@ -423,18 +445,22 @@ Handle<Value> js_qtree_add(const Arguments &args) {
 }
 
 Handle<Value> js_qtree_coll(const Arguments &args) {
-    if(args.Length() < 1) {
+    if(args.Length() < 4) {
         return ThrowException(Exception::TypeError(
-            String::New("Need a rect to find collisions with!")));
+            String::New("Need x, y, w, h to find collisions with!")));
     }
 
     HandleScope scope;
     qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
-    Local<Object> js_rect = args[0]->ToObject();
-    float x = (float)js_rect->Get(String::New("x"))->NumberValue();
-    float y = (float)js_rect->Get(String::New("y"))->NumberValue();
-    float w = (float)js_rect->Get(String::New("w"))->NumberValue();
-    float h = (float)js_rect->Get(String::New("h"))->NumberValue();
+    // Local<Object> js_rect = args[0]->ToObject();
+    // float x = (float)js_rect->Get(String::New("x"))->NumberValue();
+    // float y = (float)js_rect->Get(String::New("y"))->NumberValue();
+    // float w = (float)js_rect->Get(String::New("w"))->NumberValue();
+    // float h = (float)js_rect->Get(String::New("h"))->NumberValue();
+    float x = args[0]->NumberValue();
+    float y = args[1]->NumberValue();
+    float w = args[2]->NumberValue();
+    float h = args[3]->NumberValue();
     qrect r = {x, y, w, h};
     qcolresults *results = qtree_colliding(qt, &r);
     // printf("num results: %d\n", results->ce);

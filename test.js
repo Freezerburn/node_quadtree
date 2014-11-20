@@ -4,7 +4,7 @@ function hr2micro(hr) {
     return hr[0] * 1000000 + hr[1] / 1000;
 }
 
-var w = 1024, h = 1024;
+var w = 2048, h = 2048;
 var addw = 1024, addh = 1024;
 var times = 1000, intersect_times = times * 100;
 var addperloop = times / 50;
@@ -31,11 +31,11 @@ for(var i = 0; i < times / 10; i++) {
         for(var k = 0; k < intersect_times; k++) {
             var xloc = Math.random() * w, yloc = Math.random() * h;
             var t1 = process.hrtime();
-            var results = tree.intersecting(new qt.Rect(xloc, yloc, rw, rh));
+            var results = tree.intersecting(xloc, yloc, rw, rh);
             var t2 = process.hrtime();
             time += hr2micro(t2) - hr2micro(t1);
-            if(k % 1000 == 0)
-                global.gc();
+            // if(k % 1000 == 0)
+            //     global.gc();
 
             // if(results.length > 15) {
             //     console.log("LONG LENGTH DATA: " + results.length);
