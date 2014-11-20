@@ -236,7 +236,7 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
         }
     }
 }
-void qnode_remove(qnode *n, unsigned ml, unsigned l, Persistent<Value> d) {
+void qnode_remove(qnode *n, unsigned ml, unsigned l, Local<Value> d) {
     for(unsigned i = 0; i < n->cd; i++) {
         if(n->d[i].d->StrictEquals(d)) {
             if(i + 1 == n->cd) {
@@ -250,6 +250,25 @@ void qnode_remove(qnode *n, unsigned ml, unsigned l, Persistent<Value> d) {
                 memmove(n->d + i, n->d + i + 1, (n->cd - i) * sizeof(qnentry));
                 n->cd--;
             }
+        }
+    }
+
+    if(l != ml) {
+        unsigned nch = qnch(n->i, 1);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_remove(n + nch, ml, l + 1, d);
+        }
+        nch = qnch(n->i, 2);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_remove(n + nch, ml, l + 1, d);
+        }
+        nch = qnch(n->i, 3);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_remove(n + nch, ml, l + 1, d);
+        }
+        nch = qnch(n->i, 4);
+        if(*(unsigned long*)(n + nch) != 0) {
+            qnode_remove(n + nch, ml, l + 1, d);
         }
     }
 }
@@ -314,7 +333,7 @@ void qtreeadd(qtree *qt, qrect *r, Persistent<Value> d) {
     // rect_printfn(r);
     qnodeadd(qt->ns, qt->ml, 0, r, d);
 }
-void qtreerem(qtree *qt, Persistent<Value> d) {
+void qtreerem(qtree *qt, Local<Value> d) {
     qnode_remove(qt->ns, qt->ml, 0, d);
 }
 // static qcolresults *global_results = NULL;
@@ -487,6 +506,19 @@ Handle<Value> js_qtree_coll(const Arguments &args) {
     return scope.Close(ret);
 }
 
+Handle<Value> js_qtree_remove(const Arguments &args) {
+    if(args.Length() < 1) {
+        return ThrowException(Exception::TypeError(
+            String::New("Need an object to remove from the QuadTree!")));
+    }
+
+    HandleScope scope;
+    qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
+    Local<Value> d = args[0];
+    qtreerem(qt, d);
+    return scope.Close(args.This());
+}
+
 extern "C" void init(Handle<Object> target) {
     Local<FunctionTemplate> qtree_templ = FunctionTemplate::New(js_qtreen);
     qtree_wrap = Persistent<FunctionTemplate>::New(qtree_templ);
@@ -494,6 +526,7 @@ extern "C" void init(Handle<Object> target) {
     qtree_wrap->SetClassName(String::NewSymbol("native_qtree"));
     NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "add", js_qtree_add);
     NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "intersecting", js_qtree_coll);
+    NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "remove", js_qtree_remove);
     target->Set(String::NewSymbol("QuadTree"), qtree_wrap->GetFunction());
 
     Local<FunctionTemplate> rect_templ = FunctionTemplate::New(js_rectn);
