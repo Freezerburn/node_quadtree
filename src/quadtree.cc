@@ -100,7 +100,12 @@ int rect_intersect(qrect *r1, qrect *r2) {
 
 void qnoded(qnode *n) {
     // printf("Freeing node data %d\n", n->i);
-    free(n->d);
+    if(n->d != NULL) {
+        for(unsigned i = 0; i < n->cd; i++) {
+            n->d[i].d.~Persistent();
+        }
+        free(n->d);
+    }
 }
 void qtreed(qtree *qt) {
     nfroml(nd,qt->ml + 1)
@@ -127,7 +132,8 @@ void qnodewhn(qnode *n, unsigned i, unsigned l, qrect *r, unsigned md) {
     n->i = i;
     n->l = l;
     n->r = *r;
-    n->d = (qnentry*)malloc(sizeof(qnentry) * md);
+    // n->d = (qnentry*)malloc(sizeof(qnentry) * md);
+    n->d = NULL;
     n->cd = 0;
     n->md = md;
 }
@@ -176,6 +182,9 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
         if(noch) {
             /*w. node, convert to b. node*/
             // printf("Current node White. Making Black.\n");
+            if(n->d == NULL) {
+                n->d = (qnentry*)malloc(sizeof(qnentry) * n->md);
+            }
             n->d[n->cd].r = *r;
             n->d[n->cd++].d = d;
         }
@@ -213,9 +222,10 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
                     qnode *nn = n + ni;
                     qrect nr;
                     nr.x = (i % 2) == 1 ? n->r.x : n->r.x + n->r.w / 2.0f;
-                    nr.y = (i % 2) == 1 ? n->r.x : n->r.y + n->r.h / 2.0f;
+                    nr.y = i < 3 ? n->r.y : n->r.y + n->r.h / 2.0f;
                     nr.w = n->r.w / 2.0f;
                     nr.h = n->r.h / 2.0f;
+                    // rect_printfn(&nr);
                     qnodewhn(nn, n->i + ni, n->l + 1, &nr, DEFAULT_NUM_ENTRY);
                     // qnode_printfn(nn);
                     qnodeadd(nn, ml, l + 1, r, d);
@@ -223,8 +233,10 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
                         qnodeadd(nn, ml, l + 1, &n->d[j].r, n->d[j].d);
                     }
                 }
-                // free(n->d);
+                free(n->d);
+                n->d = NULL;
                 n->cd = 0;
+                n->md = DEFAULT_NUM_ENTRY;
             }
         }
         else {
@@ -236,19 +248,45 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
         }
     }
 }
-void qnode_remove(qnode *n, unsigned ml, unsigned l, Local<Value> d) {
+void qnode_remove(qnode *n, unsigned ml, unsigned l, qrect *r, Local<Value> d) {
+    if(!rect_intersect(&n->r, r))return;
+
     for(unsigned i = 0; i < n->cd; i++) {
-        if(n->d[i].d->StrictEquals(d)) {
-            if(i + 1 == n->cd) {
-                n->d[i].d.Dispose();
-                n->d[i].d.Clear();
-                n->cd--;
-            }
-            else {
-                n->d[i].d.Dispose();
-                n->d[i].d.Clear();
-                memmove(n->d + i, n->d + i + 1, (n->cd - i) * sizeof(qnentry));
-                n->cd--;
+        if(rect_intersect(&n->d[i].r, r)) {
+            if(n->d[i].d->StrictEquals(d)) {
+                if(i + 1 == n->cd) {
+                    // n->d[i].d.Dispose();
+                    // n->d[i].d.Clear();
+                    // n->d[i].d.~Persistent();
+                    n->d[i].d = Persistent<Value>();
+                    n->cd--;
+                }
+                else {
+                    // n->d[i].d.Dispose();
+                    // n->d[i].d.Clear();
+                    // n->d[i].d.~Persistent();
+                    for(unsigned j = i; j < n->cd - 1; j++) {
+                        n->d[j].d = n->d[j + 1].d;
+                        n->d[j].r = n->d[j + 1].r;
+                    }
+                    n->d[n->cd - 1].d = Persistent<Value>();
+                    // n->d[i].d = Persistent<Value>();
+                    // memmove(n->d + i, n->d + i + 1, (n->cd - i) * sizeof(qnentry));
+                    n->cd--;
+                }
+
+                if(n->cd == 0) {
+                    free(n->d);
+                    n->d = NULL;
+                    n->md = DEFAULT_NUM_ENTRY;
+                }
+                else if(n->cd == n->md / 4) {
+                    qnentry *tmp = (qnentry*)malloc(sizeof(qnentry) * n->cd * 2);
+                    memcpy(tmp, n->d, sizeof(qnentry) * n->cd);
+                    free(n->d);
+                    n->d = tmp;
+                    n->md = n->cd * 2;
+                }
             }
         }
     }
@@ -256,19 +294,19 @@ void qnode_remove(qnode *n, unsigned ml, unsigned l, Local<Value> d) {
     if(l != ml) {
         unsigned nch = qnch(n->i, 1);
         if(*(unsigned long*)(n + nch) != 0) {
-            qnode_remove(n + nch, ml, l + 1, d);
+            qnode_remove(n + nch, ml, l + 1, r, d);
         }
         nch = qnch(n->i, 2);
         if(*(unsigned long*)(n + nch) != 0) {
-            qnode_remove(n + nch, ml, l + 1, d);
+            qnode_remove(n + nch, ml, l + 1, r, d);
         }
         nch = qnch(n->i, 3);
         if(*(unsigned long*)(n + nch) != 0) {
-            qnode_remove(n + nch, ml, l + 1, d);
+            qnode_remove(n + nch, ml, l + 1, r, d);
         }
         nch = qnch(n->i, 4);
         if(*(unsigned long*)(n + nch) != 0) {
-            qnode_remove(n + nch, ml, l + 1, d);
+            qnode_remove(n + nch, ml, l + 1, r, d);
         }
     }
 }
@@ -333,8 +371,8 @@ void qtreeadd(qtree *qt, qrect *r, Persistent<Value> d) {
     // rect_printfn(r);
     qnodeadd(qt->ns, qt->ml, 0, r, d);
 }
-void qtreerem(qtree *qt, Local<Value> d) {
-    qnode_remove(qt->ns, qt->ml, 0, d);
+void qtreerem(qtree *qt, qrect *r, Local<Value> d) {
+    qnode_remove(qt->ns, qt->ml, 0, r, d);
 }
 // static qcolresults *global_results = NULL;
 qcolresults* qtree_colliding(qtree *qt, qrect *r) {
@@ -427,9 +465,11 @@ Handle<Value> js_qtreen(const Arguments &args) {
 }
 
 void js_weak_storedobj(Persistent<Value> value, void *data) {
-    value.ClearWeak();
-    value.Dispose();
-    value.Clear();
+    if(value.IsNearDeath()) {
+        value.ClearWeak();
+        value.Dispose();
+        value.Clear();
+    }
 }
 
 Handle<Value> js_qtree_add(const Arguments &args) {
@@ -446,7 +486,7 @@ Handle<Value> js_qtree_add(const Arguments &args) {
     Persistent<Value> d = Persistent<Value>::New(args[1]);
     d.MakeWeak(NULL, js_weak_storedobj);
     // printf("Made new persistent from argument 1.\n");
-    // d.MarkIndependent();
+    d.MarkIndependent();
     // printf("Persistent marked as independent.\n");
     float x = (float)js_rect->Get(String::New("x"))->NumberValue();
     // printf("Got x.\n");
@@ -515,7 +555,12 @@ Handle<Value> js_qtree_remove(const Arguments &args) {
     HandleScope scope;
     qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
     Local<Value> d = args[0];
-    qtreerem(qt, d);
+    float x = args[1]->IsUndefined() ? qt->ns->r.x : args[1]->NumberValue();
+    float y = args[2]->IsUndefined() ? qt->ns->r.y : args[2]->NumberValue();
+    float w = args[3]->IsUndefined() ? qt->ns->r.w : args[3]->NumberValue();
+    float h = args[4]->IsUndefined() ? qt->ns->r.h : args[4]->NumberValue();
+    qrect r = {x, y, w, h};
+    qtreerem(qt, &r, d);
     return scope.Close(args.This());
 }
 

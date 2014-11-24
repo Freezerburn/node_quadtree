@@ -6,25 +6,43 @@ function hr2micro(hr) {
 
 var w = 2048, h = 2048;
 var addw = 1024, addh = 1024;
-var times = 1000, intersect_times = times * 100;
+var times = 1000, intersect_times = times * 500;
 var addperloop = times / 50;
 var xpertime = w / times, ypertime = h / times;
 var rw = 10, rh = 10;
 var tree = new qt.QuadTree(w,h);
 var addobj = {foo: "bar"};
 
-var objs = [];
-for(var i = 0; i < 10; i++) {
-    var newobj = {name: "test" + i};
-    var xloc = Math.random() * w, yloc = Math.random() * h;
-    newobj.rect = new qt.Rect(xloc, yloc, 10, 20);
-    tree.add(newobj.rect, newobj);
-    objs.push(newobj);
-}
-console.log(tree.intersecting(0, 0, w, h));
-for(var i = 0; i < objs.length; i++) {
-    tree.remove(objs[i]);
-    console.log(tree.intersecting(0, 0, w, h));
+for(var attempts = 0; attempts < intersect_times; attempts++) {
+    var objs = [];
+    var time = 0;
+    for(var i = 0; i < intersect_times; i++) {
+        var newobj = {name: "test" + i};
+        var xloc = Math.random() * w, yloc = Math.random() * h;
+        var r = new qt.Rect(xloc, yloc, 10, 20);
+        newobj.rect = r;
+        var t1 = process.hrtime();
+        tree.add(r, newobj);
+        var t2 = process.hrtime();
+        time += hr2micro(t2) - hr2micro(t1);
+        objs.push(newobj);
+        // console.log(tree.intersecting(0, 0, w, h).length);
+    }
+    console.log("QuadTree add took avg " + (time / intersect_times) + " microseconds.");
+    // console.log(tree.intersecting(0, 0, w, h));
+    var num_objs = objs.length;
+    time = 0;
+    for(var i = 0; i < num_objs; i++) {
+        var t1 = process.hrtime();
+        var o = objs.pop();
+        tree.remove(o, o.rect.x, o.rect.y, o.rect.w, o.rect.h);
+        var t2 = process.hrtime();
+        time += hr2micro(t2) - hr2micro(t1);
+        // console.log(tree.intersecting(0, 0, w, h).length);
+        // console.log(tree.intersecting(0, 0, w, h));
+    }
+    console.log("QuadTree remove took avg " + (time / num_objs) + " microseconds.");
+    tree = new qt.QuadTree(w,h);
 }
 
 // for(var i = 0; i < times / 10; i++) {
