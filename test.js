@@ -13,6 +13,7 @@ var rw = 10, rh = 10;
 var tree = new qt.QuadTree(w,h);
 var addobj = {foo: "bar"};
 
+var addobj = {foo: "bar"};
 for(var attempts = 0; attempts < intersect_times; attempts++) {
     var objs = [];
     var time = 0;
@@ -42,6 +43,7 @@ for(var attempts = 0; attempts < intersect_times; attempts++) {
         // console.log(tree.intersecting(0, 0, w, h));
     }
     console.log("QuadTree remove took avg " + (time / num_objs) + " microseconds.");
+    // tree.clear();
     tree = new qt.QuadTree(w,h);
 }
 

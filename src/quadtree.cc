@@ -1,5 +1,6 @@
 #include <node.h>
 #include <v8.h>
+#include <nan.h>
 
 #include <math.h>
 
@@ -10,8 +11,8 @@
 
 using namespace v8;
 
-static Persistent<FunctionTemplate> qtree_wrap;
-static Persistent<FunctionTemplate> rect_wrap;
+static Nan::Persistent<FunctionTemplate> qtree_wrap;
+static Nan::Persistent<FunctionTemplate> rect_wrap;
 
 struct qrectI {
     float x, y, w, h;
@@ -19,7 +20,7 @@ struct qrectI {
 typedef struct qrectI qrect;
 struct qnentryI {
     qrect r;
-    Persistent<Value> d;
+    Nan::Persistent<Object> d;
 };
 typedef struct qnentryI qnentry;
 struct qnodeI {
@@ -53,7 +54,7 @@ qcolresults* qcolresultsn(unsigned me) {
     ret->ce = 0;
     ret->me = me;
     for(unsigned i = 0; i < me; i++) {
-        ret->e[i].d = Persistent<Value>();
+        new ((void*)&ret->e[i].d) Nan::Persistent<Object>();
     }
     return ret;
 }
@@ -102,6 +103,10 @@ void qnoded(qnode *n) {
     // printf("Freeing node data %d\n", n->i);
     if(n->d != NULL) {
         for(unsigned i = 0; i < n->cd; i++) {
+            n->d[i].d.Reset();
+            n->d[i].d.~Persistent();
+        }
+        for (unsigned i = n->cd, end = n->md; i < end; i++) {
             n->d[i].d.~Persistent();
         }
         free(n->d);
@@ -114,7 +119,6 @@ void qtreed(qtree *qt) {
         qnoded(qt->ns + i);
     }
     // printf("")
-    // free(qt->ns);
     // printf("Freeing qtree.");
     free(qt);
 }
@@ -132,7 +136,6 @@ void qnodewhn(qnode *n, unsigned i, unsigned l, qrect *r, unsigned md) {
     n->i = i;
     n->l = l;
     n->r = *r;
-    // n->d = (qnentry*)malloc(sizeof(qnentry) * md);
     n->d = NULL;
     n->cd = 0;
     n->md = md;
@@ -144,6 +147,9 @@ void qtree_initroot(qnode *n, int w, int h, unsigned nentry) {
     n->r.w = w;
     n->r.h = h;
     n->d = (qnentry*)malloc(sizeof(qnentry) * nentry);
+    for (unsigned i = 0; i < nentry; i++) {
+        new ((void*)&n->d[i].d) Nan::Persistent<Object>();
+    }
     n->cd = 0;
     n->md = nentry;
 }
@@ -156,7 +162,7 @@ qtree* qtreen(int w, int h, unsigned ml) {
     return ret;
 }
 
-void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) {
+void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Nan::Persistent<Object> *d) {
     // printf("Current layer: %d, max layer: %d\n", l, ml);
     // printf("qnoadeadd Current Node: ");
     // qnode_printfn(n);
@@ -183,10 +189,17 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
             /*w. node, convert to b. node*/
             // printf("Current node White. Making Black.\n");
             if(n->d == NULL) {
+                // printf("Allocating array for data... ");
                 n->d = (qnentry*)malloc(sizeof(qnentry) * n->md);
+                for (unsigned j = 0; j < n->md; j++) {
+                    new ((void*)&n->d[j].d) Nan::Persistent<Object>();
+                }
+                // printf("done.\n");
             }
             n->d[n->cd].r = *r;
-            n->d[n->cd++].d = d;
+            // printf("Resetting persistent... ");
+            n->d[n->cd++].d.Reset(*d);
+            // printf("done.\n");
         }
         else {
             /*g. node, recurse*/
@@ -206,13 +219,16 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
                 unsigned nm = n->md * 2;
                 // printf("New max: %d\n", n->md);
                 qnentry *tmp = (qnentry*)malloc(sizeof(qnentry) * nm);
+                for (unsigned j = n->md, end = n->md * 2; j < end; j++) {
+                    new ((void*)&tmp[j].d) Nan::Persistent<Object>();
+                }
                 memcpy(tmp, n->d, sizeof(qnentry) * n->md);
                 free(n->d);
                 n->d = tmp;
                 n->md = nm;
                 // printf("realloc done. setting values.\n");
                 n->d[n->cd].r = *r;
-                n->d[n->cd++].d = d;
+                n->d[n->cd++].d.Reset(*d);
                 // printf("values set.\n");
             }
             else {
@@ -230,7 +246,7 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
                     // qnode_printfn(nn);
                     qnodeadd(nn, ml, l + 1, r, d);
                     for(unsigned j = 0; j < n->cd; j++) {
-                        qnodeadd(nn, ml, l + 1, &n->d[j].r, n->d[j].d);
+                        qnodeadd(nn, ml, l + 1, &n->d[j].r, &n->d[j].d);
                     }
                 }
                 free(n->d);
@@ -242,7 +258,9 @@ void qnodeadd(qnode *n, unsigned ml, unsigned l, qrect *r, Persistent<Value> d) 
         else {
             // printf("Adding element to Black node.\n");
             n->d[n->cd].r = *r;
-            n->d[n->cd++].d = d;
+            // printf("Resetting persistent... ");
+            n->d[n->cd++].d.Reset(*d);
+            // printf("done.\n");
             // printf("Black node after add: ");
             // qnode_printfn(n);
         }
@@ -253,35 +271,37 @@ void qnode_remove(qnode *n, unsigned ml, unsigned l, qrect *r, Local<Value> d) {
 
     for(unsigned i = 0; i < n->cd; i++) {
         if(rect_intersect(&n->d[i].r, r)) {
-            if(n->d[i].d->StrictEquals(d)) {
+            if(n->d[i].d.operator==(d)) {
                 if(i + 1 == n->cd) {
-                    // n->d[i].d.Dispose();
-                    // n->d[i].d.Clear();
-                    // n->d[i].d.~Persistent();
-                    n->d[i].d = Persistent<Value>();
+                    n->d[i].d.Reset();
                     n->cd--;
                 }
                 else {
-                    // n->d[i].d.Dispose();
-                    // n->d[i].d.Clear();
-                    // n->d[i].d.~Persistent();
                     for(unsigned j = i; j < n->cd - 1; j++) {
-                        n->d[j].d = n->d[j + 1].d;
+                        n->d[j].d.Reset(n->d[j + 1].d);
                         n->d[j].r = n->d[j + 1].r;
                     }
-                    n->d[n->cd - 1].d = Persistent<Value>();
-                    // n->d[i].d = Persistent<Value>();
-                    // memmove(n->d + i, n->d + i + 1, (n->cd - i) * sizeof(qnentry));
+                    n->d[n->cd - 1].d.Reset();
                     n->cd--;
                 }
 
                 if(n->cd == 0) {
+                    // printf("Destruct node start... ");
+                    for (unsigned j = 0, end = n->md; j < end; j++) {
+                        n->d[j].d.~Persistent();
+                    }
+                    // printf("done.\n");
                     free(n->d);
                     n->d = NULL;
                     n->md = DEFAULT_NUM_ENTRY;
                 }
                 else if(n->cd == n->md / 4) {
                     qnentry *tmp = (qnentry*)malloc(sizeof(qnentry) * n->cd * 2);
+                    // printf("Compact node start... ");
+                    for (unsigned j = n->cd, end = n->md; j < end; j++) {
+                        n->d[j].d.~Persistent();
+                    }
+                    // printf("done.\n");
                     memcpy(tmp, n->d, sizeof(qnentry) * n->cd);
                     free(n->d);
                     n->d = tmp;
@@ -328,7 +348,7 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
             // rect_printfn(&n->d[i].r);
             // printf("coll data: %s\n", *String::Utf8Value(n->d[i].d));
             for(unsigned j = 0; j < results->ce; j++) {
-                if(recteq(&n->d[i].r, &results->e[j].r) && results->e[j].d->StrictEquals(n->d[i].d)) {
+                if(recteq(&n->d[i].r, &results->e[j].r) && results->e[j].d.operator==(n->d[i].d)) {
                     skip = 1;
                     break;
                 }
@@ -343,7 +363,7 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
                 results->e[results->ce].r.y = n->d[i].r.y;
                 results->e[results->ce].r.w = n->d[i].r.w;
                 results->e[results->ce].r.h = n->d[i].r.h;
-                results->e[results->ce++].d = n->d[i].d;
+                results->e[results->ce++].d.Reset(n->d[i].d);
             }
         }
     }
@@ -367,222 +387,220 @@ void qnode_colliding(qnode *n, qrect *r, qcolresults *results, unsigned l, unsig
         }
     }
 }
-void qtreeadd(qtree *qt, qrect *r, Persistent<Value> d) {
-    // rect_printfn(r);
+void qtreeadd(qtree *qt, qrect *r, Nan::Persistent<Object> *d) {
+    // printf("qtreeadd before\n");
     qnodeadd(qt->ns, qt->ml, 0, r, d);
+    // printf("qtreeadd after\n");
 }
 void qtreerem(qtree *qt, qrect *r, Local<Value> d) {
     qnode_remove(qt->ns, qt->ml, 0, r, d);
 }
-// static qcolresults *global_results = NULL;
 qcolresults* qtree_colliding(qtree *qt, qrect *r) {
-    // if(global_results == NULL) {
-    //     global_results = qcolresultsn(100);
-    // }
     qcolresults *results = qcolresultsn(100);
     qnode_colliding(qt->ns, r, results, 0, qt->ml);
     return results;
 }
 
-void js_weak_qrect(Persistent<Value> value, void *data) {
-    HandleScope scope;
-    free(data);
-    value.ClearWeak();
-    value.Dispose();
-    value.Clear();
+void js_weak_qrect(const Nan::WeakCallbackInfo<qrect> &data) {
+    // printf("freeing qrect... ");
+    free(data.GetParameter());
+    // printf("done.\n");
 }
 
-Handle<Value> js_rectn(const Arguments &args) {
-    if(!args.IsConstructCall()) {
-        return ThrowException(Exception::TypeError(
-            String::New("Use the new operator to create instances of a QuadTree Rect.")));
+NAN_METHOD(js_rectn) {
+    Nan::EscapableHandleScope();
+    if(!info.IsConstructCall()) {
+        Nan::ThrowTypeError("Use the new operator to create instances of a QuadTree Rect.");
     }
-    if(args.Length() < 4) {
-        return ThrowException(Exception::TypeError(
-            String::New("Need an x, y, width, and height for the Rect!")));
+    if(info.Length() < 4) {
+        Nan::ThrowTypeError("Need an x, y, width, and height for the Rect!");
     }
 
-    HandleScope scope;
-    float x = (float)args[0]->NumberValue();
-    float y = (float)args[1]->NumberValue();
-    float w = (float)args[2]->NumberValue();
-    float h = (float)args[3]->NumberValue();
+    float x = (float)info[0]->NumberValue();
+    float y = (float)info[1]->NumberValue();
+    float w = (float)info[2]->NumberValue();
+    float h = (float)info[3]->NumberValue();
+    // printf("rect: x:%f, y:%f, w:%f, h:%f\n", x, y, w, h);
     qrect *r = rectn(x, y, w, h);
-    Persistent<Object> ret = Persistent<Object>::New(args.This());
-    ret->SetPointerInInternalField(0, r);
-    ret.MakeWeak(r, js_weak_qrect);
+    Nan::SetInternalFieldPointer(info.This(), 0, r);
+    Nan::Persistent<Object> ret(info.This());
+    ret.SetWeak(r, js_weak_qrect, WeakCallbackType::kParameter);
     ret.MarkIndependent();
-    return scope.Close(args.This());
+    info.GetReturnValue().Set(info.This());
 }
 
-Handle<Value> js_rect_xget(Local<String> prop, const AccessorInfo &info) {
-    HandleScope scope;
-    qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return scope.Close(Number::New(r->x));
+NAN_PROPERTY_GETTER(js_rect_xget) {
+    qrect *r = (qrect*)Nan::GetInternalFieldPointer(info.This(), 0);
+    // printf("qrect retrieving x:%f\n", r->x);
+    info.GetReturnValue().Set(Nan::New<Number>(r->x));
 }
-Handle<Value> js_rect_yget(Local<String> prop, const AccessorInfo &info) {
-    HandleScope scope;
-    qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return scope.Close(Number::New(r->y));
+NAN_PROPERTY_GETTER(js_rect_yget) {
+    qrect *r = (qrect*)Nan::GetInternalFieldPointer(info.This(), 0);
+    // printf("qrect retrieving y:%f\n", r->y);
+    info.GetReturnValue().Set(Nan::New<Number>(r->y));
 }
-Handle<Value> js_rect_wget(Local<String> prop, const AccessorInfo &info) {
-    HandleScope scope;
-    qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return scope.Close(Number::New(r->w));
+NAN_PROPERTY_GETTER(js_rect_wget) {
+    qrect *r = (qrect*)Nan::GetInternalFieldPointer(info.This(), 0);
+    // printf("qrect retrieving w:%f\n", r->w);
+    info.GetReturnValue().Set(Nan::New<Number>(r->w));
 }
-Handle<Value> js_rect_hget(Local<String> prop, const AccessorInfo &info) {
-    HandleScope scope;
-    qrect *r = (qrect*)info.This()->GetPointerFromInternalField(0);
-    return scope.Close(Number::New(r->h));
-}
-
-void js_weak_qtree(Persistent<Value> value, void *data) {
-    qtree *qt = (qtree*)data;
-    qtreed(qt);
+NAN_PROPERTY_GETTER(js_rect_hget) {
+    qrect *r = (qrect*)Nan::GetInternalFieldPointer(info.This(), 0);
+    // printf("qrect retrieving h:%f\n", r->h);
+    info.GetReturnValue().Set(Nan::New<Number>(r->h));
 }
 
-Handle<Value> js_qtreen(const Arguments &args) {
-    if(!args.IsConstructCall()) {
-        return ThrowException(Exception::TypeError(
-            String::New("Use the new operator to create instances of a QuadTree.")));
+void js_weak_qtree(const Nan::WeakCallbackInfo<qtree> &data) {
+    // printf("Freeing qtree... ");
+    qtreed(data.GetParameter());
+    // printf("done.\n");
+}
+
+NAN_METHOD(js_qtreen) {
+    if(!info.IsConstructCall()) {
+        Nan::ThrowTypeError("Use the new operator to create instances of a QuadTree.");
     }
-    if(args.Length() < 2) {
-        return ThrowException(Exception::TypeError(
-            String::New("Need a width and height for the QuadTree!")));
+    if(info.Length() < 2) {
+        Nan::ThrowTypeError("Need a width and height for the QuadTree!");
     }
 
-    HandleScope scope;
-    int w = args[0]->Int32Value();
-    int h = args[1]->Int32Value();
-    int ml = args[2]->IsUndefined() ? DEFAULT_MAX_LAYERS : args[2]->Int32Value();
+    int w = info[0]->Int32Value();
+    int h = info[1]->Int32Value();
+    int ml = info[2]->IsUndefined() ? DEFAULT_MAX_LAYERS : info[2]->Int32Value();
     qtree *qt = qtreen(w, h, ml);
+    Nan::SetInternalFieldPointer(info.This(), 0, qt);
+    Nan::Persistent<Object> ret(info.This());
+    ret.SetWeak(qt, js_weak_qtree, WeakCallbackType::kParameter);
+    // ret.MarkIndependent();
     // printf("qt addr new: 0x%lx\n", (unsigned long)qt);
-    Persistent<Object> ret = Persistent<Object>::New(args.This());
-    ret->SetPointerInInternalField(0, qt);
-    ret.MakeWeak(qt, js_weak_qtree);
-    ret.MarkIndependent();
-    return scope.Close(args.This());
+    info.GetReturnValue().Set(info.This());
 }
 
-void js_weak_storedobj(Persistent<Value> value, void *data) {
-    if(value.IsNearDeath()) {
-        value.ClearWeak();
-        value.Dispose();
-        value.Clear();
-    }
+void js_weak_held_persistent(const Nan::WeakCallbackInfo<int> &data) {
 }
 
-Handle<Value> js_qtree_add(const Arguments &args) {
-    if(args.Length() < 2) {
-        return ThrowException(Exception::TypeError(
-            String::New("Need a rect and object to add to the QuadTree!")));
+NAN_METHOD(js_qtreeclear) {
+    qtree *qt = (qtree*)Nan::GetInternalFieldPointer(info.This(), 0);
+    printf("clear1\n");
+    int w = qt->ns[0].r.w;
+    printf("clear2\n");
+    int h = qt->ns[0].r.h;
+    printf("clear3\n");
+    int ml = qt->ml;
+    printf("clear4\n");
+    qtreed(qt);
+    printf("clear5\n");
+    qt = qtreen(w, h, ml);
+    printf("clear6\n");
+    Nan::SetInternalFieldPointer(info.This(), 0, qt);
+    printf("clear7\n");
+    info.GetReturnValue().Set(info.This());
+}
+
+NAN_METHOD(js_qtree_add) {
+    if(info.Length() < 2) {
+        Nan::ThrowTypeError("Need a rect and object to add to the QuadTree!");
     }
 
-    HandleScope scope;
-    qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
+    qtree *qt = (qtree*)Nan::GetInternalFieldPointer(info.This(), 0);
     // printf("qt addr add: 0x%lx\n", (unsigned long)qt);
-    Local<Object> js_rect = args[0]->ToObject();
+    Local<Object> js_rect = info[0]->ToObject();
+    Local<Object> d = info[1]->ToObject();
     // printf("Got js_rect object.\n");
-    Persistent<Value> d = Persistent<Value>::New(args[1]);
-    d.MakeWeak(NULL, js_weak_storedobj);
-    // printf("Made new persistent from argument 1.\n");
-    d.MarkIndependent();
-    // printf("Persistent marked as independent.\n");
-    float x = (float)js_rect->Get(String::New("x"))->NumberValue();
-    // printf("Got x.\n");
-    float y = (float)js_rect->Get(String::New("y"))->NumberValue();
-    // printf("Got y.\n");
-    float w = (float)js_rect->Get(String::New("w"))->NumberValue();
-    // printf("Got w.\n");
-    float h = (float)js_rect->Get(String::New("h"))->NumberValue();
-    // printf("qt add Rect{x:%f,y:%f,w:%f,h:%f\n", x, y, w, h);
+    float x = (float)Nan::Get(js_rect, Nan::New<String>("x").ToLocalChecked()).ToLocalChecked()->NumberValue();
+    // printf("Got x:%f\n", x);
+    float y = (float)Nan::Get(js_rect, Nan::New<String>("y").ToLocalChecked()).ToLocalChecked()->NumberValue();
+    // printf("Got y: %f\n", y);
+    float w = (float)Nan::Get(js_rect, Nan::New<String>("w").ToLocalChecked()).ToLocalChecked()->NumberValue();
+    // printf("Got w: %f\n", w);
+    float h = (float)Nan::Get(js_rect, Nan::New<String>("h").ToLocalChecked()).ToLocalChecked()->NumberValue();
+    // printf("Got h: %f\n", h);
+    // printf("qt add Rect{x:%f,y:%f,w:%f,h:%f}\n", x, y, w, h);
     qrect r = {x, y, w, h};
     // printf("Doing qt add!\n");
-    qtreeadd(qt, &r, d);
+    Nan::Persistent<Object> pd(d);
+    int garbage = 0;
+    pd.SetWeak(&garbage, js_weak_held_persistent, WeakCallbackType::kParameter);
+    // pd.MarkIndependent();
+    qtreeadd(qt, &r, &pd);
     // printf("Finished add! Returning this.\n");
-    return scope.Close(args.This());
+    info.GetReturnValue().Set(info.This());
 }
 
-Handle<Value> js_qtree_coll(const Arguments &args) {
-    if(args.Length() < 4) {
-        return ThrowException(Exception::TypeError(
-            String::New("Need x, y, w, h to find collisions with!")));
+NAN_METHOD(js_qtree_coll) {
+    if(info.Length() < 4) {
+        Nan::ThrowTypeError("Need x, y, w, h to find collisions with!");
     }
 
-    HandleScope scope;
-    qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
-    // Local<Object> js_rect = args[0]->ToObject();
-    // float x = (float)js_rect->Get(String::New("x"))->NumberValue();
-    // float y = (float)js_rect->Get(String::New("y"))->NumberValue();
-    // float w = (float)js_rect->Get(String::New("w"))->NumberValue();
-    // float h = (float)js_rect->Get(String::New("h"))->NumberValue();
-    float x = args[0]->NumberValue();
-    float y = args[1]->NumberValue();
-    float w = args[2]->NumberValue();
-    float h = args[3]->NumberValue();
+    qtree *qt = (qtree*)Nan::GetInternalFieldPointer(info.This(), 0);
+    float x = info[0]->NumberValue();
+    float y = info[1]->NumberValue();
+    float w = info[2]->NumberValue();
+    float h = info[3]->NumberValue();
     qrect r = {x, y, w, h};
     qcolresults *results = qtree_colliding(qt, &r);
     // printf("num results: %d\n", results->ce);
-    // for(unsigned i = 0; i < results->ce; i++) {
-    //     rect_printfn(&results->e[i].r);
-    // }
-    Local<Array> ret = Array::New(results->ce);
-    if(results->ce > 1000) {
-        printf("!!!!! %d results!\n", results->ce);
-    }
     for(unsigned i = 0; i < results->ce; i++) {
-        Local<Number> x = Number::New(results->e[i].r.x);
-        Local<Number> y = Number::New(results->e[i].r.y);
-        Local<Number> w = Number::New(results->e[i].r.w);
-        Local<Number> h = Number::New(results->e[i].r.h);
+        rect_printfn(&results->e[i].r);
+    }
+    // Local<Array> ret = Array::New(results->ce);
+    Local<Array> ret = Nan::New<Array>(results->ce);
+    // if(results->ce > 1000) {
+    //     printf("!!!!! %d results!\n", results->ce);
+    // }
+    for(unsigned i = 0; i < results->ce; i++) {
+        Local<Number> x = Nan::New<Number>(results->e[i].r.x);
+        Local<Number> y = Nan::New<Number>(results->e[i].r.y);
+        Local<Number> w = Nan::New<Number>(results->e[i].r.w);
+        Local<Number> h = Nan::New<Number>(results->e[i].r.h);
         Handle<Value> argv[] = {x, y, w, h};
-        Local<Value> rect = rect_wrap->GetFunction()->NewInstance(4, argv);
-        Local<Object> pair = Object::New();
-        pair->Set(String::New("rect"), rect);
-        pair->Set(String::New("obj"), results->e[i].d);
-        ret->Set(i, pair);
+        Local<FunctionTemplate> tplt = Nan::New<FunctionTemplate>(rect_wrap);
+        Local<Value> rect = tplt->GetFunction()->NewInstance(4, argv);
+        Local<Object> pair = Nan::New<Object>();
+        Nan::Set(pair, Nan::New<String>("rect").ToLocalChecked(), rect);
+        Nan::Set(pair, Nan::New<String>("obj").ToLocalChecked(), Nan::New<Object>(results->e[i].d));
+        Nan::Set(ret, i, pair);
     }
     qcolresultsd(results);
-    return scope.Close(ret);
+    info.GetReturnValue().Set(ret);
 }
 
-Handle<Value> js_qtree_remove(const Arguments &args) {
-    if(args.Length() < 1) {
-        return ThrowException(Exception::TypeError(
-            String::New("Need an object to remove from the QuadTree!")));
+NAN_METHOD(js_qtree_remove) {
+    if(info.Length() < 1) {
+        Nan::ThrowTypeError("Need an object to remove from the QuadTree!");
     }
 
-    HandleScope scope;
-    qtree *qt = (qtree*)args.This()->GetPointerFromInternalField(0);
-    Local<Value> d = args[0];
-    float x = args[1]->IsUndefined() ? qt->ns->r.x : args[1]->NumberValue();
-    float y = args[2]->IsUndefined() ? qt->ns->r.y : args[2]->NumberValue();
-    float w = args[3]->IsUndefined() ? qt->ns->r.w : args[3]->NumberValue();
-    float h = args[4]->IsUndefined() ? qt->ns->r.h : args[4]->NumberValue();
+    qtree *qt = (qtree*)Nan::GetInternalFieldPointer(info.This(), 0);
+    Local<Value> d = info[0];
+    float x = info[1]->IsUndefined() ? qt->ns->r.x : info[1]->NumberValue();
+    float y = info[2]->IsUndefined() ? qt->ns->r.y : info[2]->NumberValue();
+    float w = info[3]->IsUndefined() ? qt->ns->r.w : info[3]->NumberValue();
+    float h = info[4]->IsUndefined() ? qt->ns->r.h : info[4]->NumberValue();
     qrect r = {x, y, w, h};
     qtreerem(qt, &r, d);
-    return scope.Close(args.This());
+    info.GetReturnValue().Set(info.This());
 }
 
-extern "C" void init(Handle<Object> target) {
-    Local<FunctionTemplate> qtree_templ = FunctionTemplate::New(js_qtreen);
-    qtree_wrap = Persistent<FunctionTemplate>::New(qtree_templ);
-    qtree_wrap->InstanceTemplate()->SetInternalFieldCount(1);
-    qtree_wrap->SetClassName(String::NewSymbol("native_qtree"));
-    NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "add", js_qtree_add);
-    NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "intersecting", js_qtree_coll);
-    NODE_SET_PROTOTYPE_METHOD(qtree_wrap, "remove", js_qtree_remove);
-    target->Set(String::NewSymbol("QuadTree"), qtree_wrap->GetFunction());
+NAN_MODULE_INIT(init) {
+    Local<FunctionTemplate> qtree_templ = Nan::New<FunctionTemplate>(js_qtreen);
+    qtree_templ->InstanceTemplate()->SetInternalFieldCount(1);
+    qtree_templ->SetClassName(Nan::New<String>("native_qtree").ToLocalChecked());
+    Nan::SetPrototypeMethod(qtree_templ, "add", js_qtree_add);
+    Nan::SetPrototypeMethod(qtree_templ, "intersecting", js_qtree_coll);
+    Nan::SetPrototypeMethod(qtree_templ, "remove", js_qtree_remove);
+    // Nan::SetPrototypeMethod(qtree_templ, "clear", js_qtreeclear);
+    target->Set(Nan::New<String>("QuadTree").ToLocalChecked(), qtree_templ->GetFunction());
+    qtree_wrap.Reset(qtree_templ);
 
-    Local<FunctionTemplate> rect_templ = FunctionTemplate::New(js_rectn);
-    rect_wrap = Persistent<FunctionTemplate>::New(rect_templ);
-    rect_wrap->InstanceTemplate()->SetInternalFieldCount(1);
-    rect_wrap->SetClassName(String::NewSymbol("native_qrect"));
-    rect_wrap->InstanceTemplate()->SetAccessor(String::New("x"), js_rect_xget);
-    rect_wrap->InstanceTemplate()->SetAccessor(String::New("y"), js_rect_yget);
-    rect_wrap->InstanceTemplate()->SetAccessor(String::New("w"), js_rect_wget);
-    rect_wrap->InstanceTemplate()->SetAccessor(String::New("h"), js_rect_hget);
-    target->Set(String::NewSymbol("Rect"), rect_wrap->GetFunction());
+    Local<FunctionTemplate> rect_templ = Nan::New<FunctionTemplate>(js_rectn);
+    rect_templ->InstanceTemplate()->SetInternalFieldCount(1);
+    rect_templ->SetClassName(Nan::New<String>("native_qrect").ToLocalChecked());
+    Nan::SetAccessor(rect_templ->InstanceTemplate(), Nan::New<String>("x").ToLocalChecked(), js_rect_xget);
+    Nan::SetAccessor(rect_templ->InstanceTemplate(), Nan::New<String>("y").ToLocalChecked(), js_rect_yget);
+    Nan::SetAccessor(rect_templ->InstanceTemplate(), Nan::New<String>("w").ToLocalChecked(), js_rect_wget);
+    Nan::SetAccessor(rect_templ->InstanceTemplate(), Nan::New<String>("h").ToLocalChecked(), js_rect_hget);
+    target->Set(Nan::New<String>("Rect").ToLocalChecked(), rect_templ->GetFunction());
+    rect_wrap.Reset(rect_templ);
 }
 
 NODE_MODULE(node_quadtree, init)
